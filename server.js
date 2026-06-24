@@ -1,3 +1,4 @@
+const fetch = require('node-fetch');
 const express = require('express');
 const path    = require('path');
 
@@ -140,12 +141,11 @@ app.get('/api/cotacoes', async (req, res) => {
   try {
     console.log('[API] Buscando planilha...');
 
-    let fetchFn;
-    try { fetchFn = fetch; }
-    catch { fetchFn = (...a) => import('node-fetch').then(({ default: f }) => f(...a)); }
+    const resp = await fetch(SHEET_CSV);
 
-    const resp = await fetchFn(SHEET_CSV, { signal: AbortSignal.timeout(10000) });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
 
     const text   = await resp.text();
     const result = parseCsv(text);
