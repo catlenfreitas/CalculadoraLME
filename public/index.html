@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculadora LME — Estanho</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0d1117;
+    --surface: #161b22;
+    --surf2:   #1c2230;
+    --border:  #2a3445;
+    --accent:  #e82020;
+    --acc2:    #db5b5b;
+    --text:    #e6edf3;
+    --muted:   #7d8590;
+    --green:   #3fb950;
+    --red:     #f85149;
+    --mono:    'IBM Plex Mono', monospace;
+    --sans:    'IBM Plex Sans', sans-serif;
+  }
+
+  body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px 16px 56px; }
+
+  /* Header */
+  header { max-width: 980px; margin: 0 auto 28px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 20px; }
+  .brand-label { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; }
+  h1 em { color: var(--accent); font-style: normal; }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; background: var(--surf2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 13px; color: var(--muted); }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .pill.ok   .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .pill.err  .dot { background: var(--red); }
+  .pill.spin .dot { animation: spin-dot 1s linear infinite; }
+  @keyframes spin-dot { to { transform: rotate(360deg); } }
+
+  /* Tickers */
+  .tickers { max-width: 980px; margin: 0 auto 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 12px; }
+  .tcard { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; position: relative; overflow: hidden; }
+  .tcard::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: .55; }
+  .tcard-label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .tcard-val { font-family: var(--mono); font-size: 22px; font-weight: 600; line-height: 1; }
+  .tcard-val.dim { color: var(--muted); font-size: 14px; }
+  .tcard-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* Grid */
+  .grid { max-width: 980px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .ptitle { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .ptitle::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* Inputs */
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .field input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: var(--mono); font-size: 14px; padding: 10px 12px; width: 100%; outline: none; transition: border-color .2s; }
+  .field input:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--muted); }
+  .note { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ICMS */
+  .icms-row { display: grid; grid-template-columns: repeat(5,1fr); gap: 6px; margin-bottom: 12px; }
+  .ibtn { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-family: var(--mono); font-size: 12px; padding: 8px 2px; cursor: pointer; text-align: center; transition: all .15s; }
+  .ibtn:hover { border-color: var(--accent); color: var(--text); }
+  .ibtn.on { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+
+  /* Clients */
+  .crow { display: grid; grid-template-columns: 1fr 76px 28px; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .crow input { margin: 0; }
+  .btn-x { background: transparent; border: 1px solid var(--border); color: var(--red); border-radius: 6px; cursor: pointer; font-size: 15px; line-height: 1; padding: 4px 6px; transition: background .15s; }
+  .btn-x:hover { background: rgba(248,81,73,.15); }
+  .btn-add { background: transparent; border: 1px dashed var(--border); color: var(--muted); border-radius: 8px; cursor: pointer; font-size: 12px; padding: 8px; width: 100%; transition: all .15s; }
+  .btn-add:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Results */
+  .results { grid-column: 1 / -1; }
+  .res-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .btn-calc { background: var(--accent); border: none; border-radius: 8px; color: #000; cursor: pointer; font-size: 13px; font-weight: 600; padding: 10px 22px; transition: background .15s; }
+  .btn-calc:hover { background: var(--acc2); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: 10px; border-bottom: 1px solid rgba(42,52,69,.45); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+
+  .badge-icms    { display: inline-block; background: rgba(232,160,32,.14); color: var(--accent); border-radius: 4px; font-family: var(--mono); font-size: 10px; padding: 2px 6px; }
+  .badge-disc    { display: inline-block; background: rgba(63,185,80,.12);  color: var(--green);  border-radius: 4px; font-family: var(--mono); font-size: 10px; padding: 2px 6px; }
+  .val-base      { font-family: var(--mono); font-weight: 600; }
+  .val-final     { font-family: var(--mono); font-weight: 600; color: var(--green); font-size: 14px; }
+  .sec-row td    { background: var(--surf2); color: var(--accent); font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; padding: 6px 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+  .empty { text-align: center; color: var(--muted); font-size: 13px; padding: 32px; }
+
+  /* Footer */
+  footer { max-width: 980px; margin: 20px auto 0; font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+  .btn-sm { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 11px; padding: 4px 10px; font-family: var(--mono); transition: all .15s; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="brand-label">Escritório Cláudio Tinoco · LME</div>
+    <h1>Calculadora <em>Estanho</em></h1>
+  </div>
+  <div id="pill" class="pill spin">
+    <span class="dot"></span>
+    <span id="pillTxt">Carregando...</span>
+  </div>
+</header>
+
+<!-- Tickers -->
+<div class="tickers">
+  <div class="tcard">
+    <div class="tcard-label">Estanho LME (USD/t)</div>
+    <div class="tcard-val dim" id="tSn">—</div>
+    <div class="tcard-sub" id="tSnSub">—</div>
+  </div>
+  <div class="tcard">
+    <div class="tcard-label">Dólar (R$/USD)</div>
+    <div class="tcard-val dim" id="tUsd">—</div>
+    <div class="tcard-sub" id="tUsdSub">—</div>
+  </div>
+  <div class="tcard">
+    <div class="tcard-label">Base sem ICMS (0%)</div>
+    <div class="tcard-val dim" id="tBase">—</div>
+    <div class="tcard-sub">fator 0,9075 · por kg</div>
+  </div>
+</div>
+
+<!-- Grid -->
+<div class="grid">
+
+  <!-- Cotações -->
+  <div class="panel">
+    <div class="ptitle">Cotações</div>
+
+    <div class="field">
+      <label>Estanho LME (USD / tonelada)</label>
+      <input type="number" id="inSn"  placeholder="ex: 54000" step="0.01">
+      <span class="note">Preenchido automaticamente via API · edite para ajuste manual</span>
+    </div>
+    <div class="field">
+      <label>Dólar (R$ / USD)</label>
+      <input type="number" id="inUsd" placeholder="ex: 5.1244" step="0.0001">
+      <span class="note">Preenchido automaticamente via API · edite para ajuste manual</span>
+    </div>
+    <div class="field">
+      <label>Data de referência</label>
+      <input type="text" id="inDate" placeholder="—" readonly style="color:var(--muted)">
+    </div>
+
+    <div style="margin-top:10px">
+      <div class="ptitle">ICMS</div>
+      <div class="icms-row">
+        <button class="ibtn"    data-icms="0"  data-f="0.9075">0%</button>
+        <button class="ibtn"    data-icms="4"  data-f="0.8712">4%</button>
+        <button class="ibtn"    data-icms="7"  data-f="0.8439">7%</button>
+        <button class="ibtn on" data-icms="12" data-f="0.7986">12%</button>
+        <button class="ibtn"    data-icms="18" data-f="0.7442">18%</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">
+        Selecionado: <span id="selIcms"  style="color:var(--accent);font-family:var(--mono)">12%</span>
+        &nbsp;·&nbsp; fator: <span id="selFator" style="font-family:var(--mono)">0,7986</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Clientes -->
+  <div class="panel">
+    <div class="ptitle">Clientes / Prêmios</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      Cadastre os clientes e seus descontos sobre a LME (%).
+    </p>
+
+    <div class="crow" style="margin-bottom:4px">
+      <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">CLIENTE</span>
+      <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">DESC. %</span>
+      <span></span>
+    </div>
+    <div id="clientList"></div>
+    <button class="btn-add" onclick="addClient()">+ Adicionar cliente</button>
+  </div>
+
+  <!-- Resultados -->
+  <div class="panel results">
+    <div class="res-head">
+      <div class="ptitle" style="margin:0;flex:1">Resultados</div>
+      <button class="btn-calc" onclick="calcular()">Calcular ▶</button>
+    </div>
+    <div id="results"><div class="empty">Preencha os dados e clique em Calcular</div></div>
+  </div>
+
+</div>
+
+<footer>
+  <span>Fonte: <a href="https://www.superligasmetais.com.br/cotacao-lme/" target="_blank">superligasmetais.com.br</a></span>
+  <span id="lastUp">—</span>
+  <span>Desenvolvido por: Catlen Freitas</span>
+  <button class="btn-sm" onclick="loadCotacoes(true)">↻ Forçar atualização</button>
+</footer>
+
+<script>
+const FATORES = { 0:0.9075, 4:0.8712, 7:0.8439, 12:0.7986, 18:0.7442 };
+let selIcms = 12;
+let clients = [
+  { name: 'EMPRE123', discount: 4 }
+];
+
+// ── API ──────────────────────────────────────────────────────────────────────
+async function loadCotacoes(forceRefresh = false) {
+  setPill('spin', 'Carregando...');
+  try {
+    const url = forceRefresh ? '/api/cotacoes/refresh' : '/api/cotacoes';
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    // Preenche inputs
+    document.getElementById('inSn').value   = data.estanho;
+    document.getElementById('inUsd').value  = data.dolar;
+    document.getElementById('inDate').value = data.data || '';
+
+    // Tickers
+    setTicker('tSn',  `US$ ${fmt(data.estanho, 2)}`,  data.data ? `Ref. ${data.data}` : 'LME');
+    setTicker('tUsd', `R$ ${fmt(data.dolar, 4)}`,     data.data ? `Ref. ${data.data}` : 'Câmbio');
+
+    const base = data.estanho * data.dolar * FATORES[0] / 1000;
+    setTicker('tBase', `R$ ${fmt(base, 2)}/kg`, 'fator 0,9075');
+
+    const cached = data.cached ? ' (cache)' : '';
+    const hora = new Date().toLocaleTimeString('pt-BR');
+    document.getElementById('lastUp').textContent = `Atualizado: ${hora}${cached}`;
+    setPill('ok', 'Cotações atualizadas');
+
+  } catch (e) {
+    setPill('err', 'Erro ao carregar cotações');
+    console.error(e);
+  }
+}
+
+function setTicker(id, val, sub) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+  el.className = 'tcard-val';
+  if (sub) {
+    const subEl = document.getElementById(id + 'Sub') || el.nextElementSibling;
+    if (subEl) subEl.textContent = sub;
+  }
+}
+
+function setPill(type, msg) {
+  const p = document.getElementById('pill');
+  p.className = 'pill ' + type;
+  document.getElementById('pillTxt').textContent = msg;
+}
+
+// ── ICMS ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.ibtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.ibtn').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    selIcms = parseInt(btn.dataset.icms);
+    document.getElementById('selIcms').textContent  = selIcms + '%';
+    document.getElementById('selFator').textContent = FATORES[selIcms].toString().replace('.', ',');
+  });
+});
+
+// ── Clientes ──────────────────────────────────────────────────────────────────
+function renderClients() {
+  const list = document.getElementById('clientList');
+  list.innerHTML = '';
+  clients.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'crow';
+    row.innerHTML = `
+      <input type="text"   value="${c.name}"     placeholder="Nome/código"
+             oninput="clients[${i}].name=this.value">
+      <input type="number" value="${c.discount}" placeholder="%" min="0" max="100" step="0.1"
+             oninput="clients[${i}].discount=parseFloat(this.value)||0">
+      <button class="btn-x" onclick="removeClient(${i})">×</button>`;
+    list.appendChild(row);
+  });
+}
+function addClient()      { clients.push({ name: '', discount: 0 }); renderClients(); }
+function removeClient(i)  { clients.splice(i, 1); renderClients(); }
+
+// ── Calcular ──────────────────────────────────────────────────────────────────
+function brl(n) { return 'R$ ' + fmt(n, 2); }
+function fmt(n, dec) { return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+
+function calcular() {
+  const sn   = parseFloat(document.getElementById('inSn').value);
+  const usd  = parseFloat(document.getElementById('inUsd').value);
+  const date = document.getElementById('inDate').value || '—';
+
+  if (isNaN(sn) || isNaN(usd)) {
+    document.getElementById('results').innerHTML =
+      `<div class="empty" style="color:var(--red)">⚠ Informe os valores de Estanho e Dólar</div>`;
+    return;
+  }
+
+  const fator     = FATORES[selIcms];
+  const valorBase = (sn * usd) / fator / 1000;
+
+  // Atualiza ticker base com ICMS selecionado
+  const tBase = document.getElementById('tBase');
+  tBase.textContent = `${brl(valorBase)}/kg`;
+  tBase.className   = 'tcard-val';
+  const tBaseSub = tBase.nextElementSibling;
+  if (tBaseSub) tBaseSub.textContent = `fator ${fator.toString().replace('.',',')} · ICMS ${selIcms}%`;
+
+  let html = `<table>
+    <thead><tr>
+      <th>Cliente</th><th>Desconto</th><th>ICMS</th><th>Valor base / kg</th><th>Valor final / kg</th>
+    </tr></thead><tbody>`;
+
+  html += `<tr class="sec-row"><td colspan="5">
+    Base — ICMS ${selIcms}% · fator ${fator.toString().replace('.',',')} · 
+    Sn US$${fmt(sn,2)} · USD R$${fmt(usd,4)} · Ref. ${date}
+  </td></tr>`;
+
+  html += `<tr>
+    <td style="color:var(--text);font-weight:500">—</td>
+    <td>—</td>
+    <td><span class="badge-icms">${selIcms}%</span></td>
+    <td class="val-base">${brl(valorBase)}</td>
+    <td class="val-final">${brl(valorBase)}</td>
+  </tr>`;
+
+  if (clients.length > 0) {
+    html += `<tr class="sec-row"><td colspan="5">Clientes com prêmio (desconto sobre valor base)</td></tr>`;
+    clients.forEach(c => {
+      const desc  = (c.discount || 0) / 100;
+      const final = valorBase * (1 - desc);
+      html += `<tr>
+        <td style="color:var(--text);font-weight:500">${c.name || '—'}</td>
+        <td><span class="badge-disc">${c.discount}% off</span></td>
+        <td><span class="badge-icms">${selIcms}%</span></td>
+        <td class="val-base">${brl(valorBase)}</td>
+        <td class="val-final">${brl(final)}</td>
+      </tr>`;
+    });
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('results').innerHTML = html;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+renderClients();
+loadCotacoes();
+setInterval(() => loadCotacoes(), 5 * 60 * 1000); // atualiza a cada 5 min
+</script>
+</body>
+</html>
