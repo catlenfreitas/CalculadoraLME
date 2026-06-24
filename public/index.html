@@ -9,7 +9,7 @@
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
     --bg:#0d1117;--surface:#161b22;--surf2:#1c2230;--border:#2a3445;
-    --accent:#e82020;--acc2:#c94410;--text:#e6edf3;--muted:#7d8590;
+    --accent:#e8a020;--acc2:#c97d10;--text:#e6edf3;--muted:#7d8590;
     --green:#3fb950;--red:#f85149;
     --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
   }
@@ -79,7 +79,7 @@
 
 <header>
   <div>
-    <div class="brand-label">Escritório Cláudio Tinoco · LME</div>
+    <div class="brand-label">Super Ligas Metais · LME</div>
     <h1>Calculadora <em>Estanho</em></h1>
   </div>
   <div id="pill" class="pill spin">
@@ -228,3 +228,131 @@ function atualizarMedias() {
     const periodo = `${fmtDataCurta(data.mes.dataInicio)} a ${fmtDataCurta(data.mes.dataFim)}`;
     setTicker('tMonth', brl(val) + '/kg', periodo);
   } else {
+    setTicker('tMonth', '—', 'sem dados no período');
+  }
+
+  const sn  = parseFloat(document.getElementById('inSn').value);
+  const usd = parseFloat(document.getElementById('inUsd').value);
+  if (!isNaN(sn) && !isNaN(usd)) {
+    setTicker('tBase', brl((sn * usd) / fator / 1000) + '/kg', `ICMS ${selIcms}%`);
+  }
+}
+
+async function loadCotacoes(forceRefresh = false) {
+  setPill('spin', 'Carregando...');
+  try {
+    const url  = forceRefresh ? '/api/cotacoes/refresh' : '/api/cotacoes';
+    const res  = await fetch(url);
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    dadosGlobais = data;
+
+    document.getElementById('inSn').value   = data.hoje.estanho;
+    document.getElementById('inUsd').value  = data.hoje.dolar;
+    document.getElementById('inDate').value = data.hoje.data || '';
+
+    setTicker('tSn',  `US$ ${fmt(data.hoje.estanho, 2)}`, `Ref. ${data.hoje.data}`);
+    setTicker('tUsd', `R$ ${fmt(data.hoje.dolar, 4)}`,    `Ref. ${data.hoje.data}`);
+
+    atualizarMedias();
+
+    document.getElementById('lastUp').textContent =
+      `Atualizado: ${new Date().toLocaleTimeString('pt-BR')}${data.cached ? ' (cache)' : ''}`;
+    setPill('ok', 'Cotações atualizadas');
+
+  } catch (e) {
+    setPill('err', 'Erro ao carregar cotações');
+    console.error(e);
+  }
+}
+
+document.querySelectorAll('.ibtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.ibtn').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    selIcms = parseInt(btn.dataset.icms);
+    document.getElementById('selIcms').textContent  = selIcms + '%';
+    document.getElementById('selFator').textContent = FATORES[selIcms].toString().replace('.', ',');
+    atualizarMedias();
+  });
+});
+
+function renderClients() {
+  const list = document.getElementById('clientList');
+  list.innerHTML = '';
+  clients.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'crow';
+    row.innerHTML = `
+      <input type="text"   value="${c.name}"     placeholder="Nome/código"
+             oninput="clients[${i}].name=this.value">
+      <input type="number" value="${c.discount}" placeholder="%" min="0" max="100" step="0.1"
+             oninput="clients[${i}].discount=parseFloat(this.value)||0">
+      <button class="btn-x" onclick="removeClient(${i})">×</button>`;
+    list.appendChild(row);
+  });
+}
+function addClient()     { clients.push({ name:'', discount:0 }); renderClients(); }
+function removeClient(i) { clients.splice(i, 1); renderClients(); }
+
+function calcular() {
+  const sn   = parseFloat(document.getElementById('inSn').value);
+  const usd  = parseFloat(document.getElementById('inUsd').value);
+  const date = document.getElementById('inDate').value || '—';
+
+  if (isNaN(sn) || isNaN(usd)) {
+    document.getElementById('results').innerHTML =
+      `<div class="empty" style="color:var(--red)">⚠ Informe os valores de Estanho e Dólar</div>`;
+    return;
+  }
+
+  const fator     = FATORES[selIcms];
+  const valorBase = (sn * usd) / fator / 1000;
+
+  setTicker('tBase', brl(valorBase) + '/kg', `ICMS ${selIcms}%`);
+
+  let html = `<table>
+    <thead><tr>
+      <th>Cliente</th><th>Desconto</th><th>ICMS</th><th>Valor base / kg</th><th>Valor final / kg</th>
+    </tr></thead><tbody>`;
+
+  html += `<tr class="sec-row"><td colspan="5">
+    Base — ICMS ${selIcms}% · fator ${fator.toString().replace('.',',')} · 
+    Sn US$${fmt(sn,2)} · USD R$${fmt(usd,4)} · Ref. ${date}
+  </td></tr>`;
+
+  html += `<tr>
+    <td style="color:var(--text);font-weight:500">—</td>
+    <td>—</td>
+    <td><span class="badge-icms">${selIcms}%</span></td>
+    <td class="val-base">${brl(valorBase)}</td>
+    <td class="val-final">${brl(valorBase)}</td>
+  </tr>`;
+
+  if (clients.length > 0) {
+    html += `<tr class="sec-row"><td colspan="5">Clientes com prêmio (desconto sobre valor base)</td></tr>`;
+    clients.forEach(c => {
+      const desc  = (c.discount || 0) / 100;
+      const final = valorBase * (1 - desc);
+      html += `<tr>
+        <td style="color:var(--text);font-weight:500">${c.name || '—'}</td>
+        <td><span class="badge-disc">${c.discount}% off</span></td>
+        <td><span class="badge-icms">${selIcms}%</span></td>
+        <td class="val-base">${brl(valorBase)}</td>
+        <td class="val-final">${brl(final)}</td>
+      </tr>`;
+    });
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('results').innerHTML = html;
+}
+
+renderClients();
+loadCotacoes();
+setInterval(() => loadCotacoes(), 5 * 60 * 1000);
+</script>
+</body>
+</html>
