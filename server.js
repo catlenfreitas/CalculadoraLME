@@ -57,7 +57,7 @@ function parseCsv(text) {
       }
       const n = toNum(cell);
       if (!sn  && n > 5000  && n < 500000) sn  = n;
-      if (!usd && n > 3     && n < 30)     usd = n;
+      if (!usd && n >= 4    && n <= 10)    usd = n;  // ← faixa corrigida
     }
 
     if (data && sn && usd) {
@@ -120,11 +120,8 @@ app.get('/api/cotacoes', async (req, res) => {
     console.log('[API] Buscando planilha...');
 
     let fetchFn;
-    try {
-      fetchFn = fetch;
-    } catch {
-      fetchFn = (...a) => import('node-fetch').then(({ default: f }) => f(...a));
-    }
+    try { fetchFn = fetch; }
+    catch { fetchFn = (...a) => import('node-fetch').then(({ default: f }) => f(...a)); }
 
     const resp = await fetchFn(SHEET_CSV, { signal: AbortSignal.timeout(10000) });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
