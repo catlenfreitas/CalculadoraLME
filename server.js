@@ -35,6 +35,10 @@ function parseCSVRow(row) {
   return cells;
 }
 
+function fmtDate(d) {
+  return d.toLocaleDateString('pt-BR');
+}
+
 function parseCsv(text) {
   const rows = text
     .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -56,13 +60,13 @@ function parseCsv(text) {
         data = new Date(`${y}-${m}-${d}T12:00:00`);
       }
       const n = toNum(cell);
-      if (!sn  && n > 5000  && n < 500000) sn  = n;
-      if (!usd && n >= 4    && n <= 10)    usd = n;  // ← faixa corrigida
+      if (!sn  && n > 5000 && n < 500000) sn  = n;
+      if (!usd && n >= 4   && n <= 10)    usd = n;
     }
 
     if (data && sn && usd) {
       dados.push({ data, sn, usd });
-      console.log(`  [OK] ${data.toLocaleDateString('pt-BR')} | Sn=${sn} | USD=${usd}`);
+      console.log(`  [OK] ${fmtDate(data)} | Sn=${sn} | USD=${usd}`);
     }
   }
 
@@ -89,24 +93,41 @@ function parseCsv(text) {
     return arr.reduce((acc, v) => acc + v[campo], 0) / arr.length;
   }
 
-  console.log(`[Parser] Hoje: ${hoje.data.toLocaleDateString('pt-BR')} | Sn=${hoje.sn} | USD=${hoje.usd}`);
-  console.log(`[Parser] Semana: ${dadosSemana.length} registros | Mês: ${dadosMes.length} registros`);
+  function periodo(arr) {
+    if (!arr.length) return { dataInicio: null, dataFim: null };
+    const sorted = [...arr].sort((a, b) => a.data - b.data);
+    return {
+      dataInicio: fmtDate(sorted[0].data),
+      dataFim:    fmtDate(sorted[sorted.length - 1].data)
+    };
+  }
+
+  const perSemana = periodo(dadosSemana);
+  const perMes    = periodo(dadosMes);
+
+  console.log(`[Parser] Hoje: ${fmtDate(hoje.data)} | Sn=${hoje.sn} | USD=${hoje.usd}`);
+  console.log(`[Parser] Semana: ${dadosSemana.length} registros (${perSemana.dataInicio} a ${perSemana.dataFim})`);
+  console.log(`[Parser] Mês: ${dadosMes.length} registros (${perMes.dataInicio} a ${perMes.dataFim})`);
 
   return {
     hoje: {
       estanho: hoje.sn,
       dolar:   hoje.usd,
-      data:    hoje.data.toLocaleDateString('pt-BR')
+      data:    fmtDate(hoje.data)
     },
     semana: {
-      estanho:   media(dadosSemana, 'sn'),
-      dolar:     media(dadosSemana, 'usd'),
-      registros: dadosSemana.length
+      estanho:    media(dadosSemana, 'sn'),
+      dolar:      media(dadosSemana, 'usd'),
+      registros:  dadosSemana.length,
+      dataInicio: perSemana.dataInicio,
+      dataFim:    perSemana.dataFim
     },
     mes: {
-      estanho:   media(dadosMes, 'sn'),
-      dolar:     media(dadosMes, 'usd'),
-      registros: dadosMes.length
+      estanho:    media(dadosMes, 'sn'),
+      dolar:      media(dadosMes, 'usd'),
+      registros:  dadosMes.length,
+      dataInicio: perMes.dataInicio,
+      dataFim:    perMes.dataFim
     }
   };
 }
