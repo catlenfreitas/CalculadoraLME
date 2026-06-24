@@ -4,19 +4,12 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ── Configuração ─────────────────────────────────────────────────────────────
 const SHEET_CSV =
   'https://docs.google.com/spreadsheets/d/e/' +
   '2PACX-1vQ2ueu0_JdK4xTlvucWIsQw3HYQysnIuxXGutW2K5XxTfjQdyNvTiybwsxBf80M3zjQzTIom0SJ2-Aq' +
   '/pub?output=csv';
 
-// Cache em memória — evita bater na planilha a cada request
-let cache = { data: null, ts: 0 };
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
-
-// ── Fetch nativo (Node 18+ / Render) ─────────────────────────────────────────
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────
 
 function toNum(str) {
   if (!str) return NaN;
@@ -32,135 +25,84 @@ function toNum(str) {
 }
 
 function parseCsv(text) {
-  const rows = text
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .trim()
-    .split('\n')
-    .map(row => {
-      const cells = [];
-      let cur = '', inQ = false;
+  const rows = text.split('\n').map(r => r.split(','));
 
-      for (const ch of row) {
-        if (ch === '"') inQ = !inQ;
-        else if (ch === ',' && !inQ) {
-          cells.push(cur.trim());
-          cur = '';
-        } else {
-          cur += ch;
-        }
-      }
-
-      cells.push(cur.trim());
-      return cells;
-    });
-
-  let snValue = null, usdValue = null, dateValue = null;
-  const debugRows = rows.slice(0, 10).map((r, i) => `row[${i}]: ${r.join(' | ')}`);
+  const dados = [];
 
   for (const row of rows) {
-    const rowStr = row.join(' ').toLowerCase();
+    let data = null, sn = null, usd = null;
 
-    const dateMatch = rowStr.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/);
-    if (dateMatch && !dateValue) dateValue = dateMatch[0];
-
-    if (!snValue && (rowStr.includes('estanho') || rowStr.includes('tin') || / sn[\s,]/.test(rowStr))) {
-      for (const cell of row) {
-        const n = toNum(cell);
-        if (n > 5000 && n < 500000) {
-          snValue = n;
-          break;
-        }
+    for (const cell of row) {
+      const dateMatch = cell.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
+      if (dateMatch) {
+        const [_, d, m, y] = dateMatch;
+        data = new Date(`${y}-${m}-${d}`);
       }
+
+      const n = toNum(cell);
+      if (n > 5000 && n < 500000) sn = n;
+      if (n > 3 && n < 30) usd = n;
     }
 
-    if (!usdValue && (
-      rowStr.includes('dólar') ||
-      rowStr.includes('dolar') ||
-      rowStr.includes('usd') ||
-      rowStr.includes('câmbio') ||
-      rowStr.includes('ptax')
-    )) {
-      for (const cell of row) {
-        const n = toNum(cell);
-        if (n > 3 && n < 30) {
-          usdValue = n;
-          break;
-        }
-      }
+    if (data && sn && usd) {
+      dados.push({ data, sn, usd });
     }
   }
 
-  if (!snValue || !usdValue) {
-    for (const row of rows) {
-      for (const cell of row) {
-        const n = toNum(cell);
-        if (!snValue && n > 5000 && n < 500000) snValue = n;
-        if (!usdValue && n > 3 && n < 30) usdValue = n;
-      }
-    }
+  dados.sort((a, b) => b.data - a.data);
+
+  const hoje = dados[0];
+
+  const agora = new Date();
+  const semanaInicio = new Date();
+  semanaInicio.setDate(agora.getDate() - 7);
+
+  const mesInicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
+
+  const semana = dados.filter(d => d.data >= semanaInicio);
+  const mes = dados.filter(d => d.data >= mesInicio);
+
+  function media(arr, campo) {
+    if (!arr.length) return 0;
+    return arr.reduce((acc, v) => acc + v[campo], 0) / arr.length;
   }
 
-  return { snValue, usdValue, dateValue, debugRows };
+  return {
+    hoje: {
+      estanho: hoje.sn,
+      dolar: hoje.usd,
+      data: hoje.data.toLocaleDateString('pt-BR')
+    },
+    semana: {
+      estanho: media(semana, 'sn'),
+      dolar: media(semana, 'usd')
+    },
+    mes: {
+      estanho: media(mes, 'sn'),
+      dolar: media(mes, 'usd')
+    }
+  };
 }
 
-// ── API ──────────────────────────────────────────────────────────────────────
+// ── API ─────────────────────────────────────────
 
 app.get('/api/cotacoes', async (req, res) => {
-  if (cache.data && Date.now() - cache.ts < CACHE_TTL) {
-    return res.json({ ...cache.data, cached: true });
-  }
-
   try {
-    console.log('[API] Buscando planilha...');
-
     const resp = await fetch(SHEET_CSV);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
     const text = await resp.text();
-    const { snValue, usdValue, dateValue, debugRows } = parseCsv(text);
 
-    console.log(`[API] Sn=${snValue} | USD=${usdValue} | Data=${dateValue}`);
-
-    if (!snValue || !usdValue) {
-      return res.status(422).json({
-        error: 'Não foi possível extrair Estanho e/ou Dólar da planilha.',
-        debug: debugRows,
-        rawSample: text.substring(0, 600),
-      });
-    }
-
-    const result = {
-      estanho: snValue,
-      dolar: usdValue,
-      data: dateValue || new Date().toLocaleDateString('pt-BR'),
-      fetchedAt: new Date().toISOString(),
-      cached: false,
-    };
-
-    cache = { data: result, ts: Date.now() };
+    const result = parseCsv(text);
 
     res.json(result);
-
   } catch (err) {
-    console.error('[API] Erro:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Refresh cache
-app.get('/api/cotacoes/refresh', (req, res) => {
-  cache = { data: null, ts: 0 };
-  res.redirect('/api/cotacoes');
-});
-
-// ── Frontend ─────────────────────────────────────────────────────────────────
+// ── Front ───────────────────────────────────────
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── Start server ─────────────────────────────────────────────────────────────
-
 app.listen(PORT, () => {
-  console.log(`\n✅ Servidor rodando em http://localhost:${PORT}`);
-  console.log(`📊 API: http://localhost:${PORT}/api/cotacoes\n`);
+  console.log(`Rodando na porta ${PORT}`);
 });
