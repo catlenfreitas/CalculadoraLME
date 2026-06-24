@@ -1,7 +1,7 @@
 const express = require('express');
-const path = require('path');
+const path    = require('path');
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 3000;
 
 const SHEET_CSV =
@@ -9,23 +9,40 @@ const SHEET_CSV =
   '2PACX-1vQ2ueu0_JdK4xTlvucWIsQw3HYQysnIuxXGutW2K5XxTfjQdyNvTiybwsxBf80M3zjQzTIom0SJ2-Aq' +
   '/pub?output=csv';
 
-// ── Helpers ─────────────────────────────────────
+let cache = { data: null, ts: 0 };
+const CACHE_TTL = 5 * 60 * 1000;
 
 function toNum(str) {
   if (!str) return NaN;
-  let s = str.replace(/\s/g, '').replace(/[R$US%]/g, '');
-
+  let s = str.replace(/\s/g, '').replace(/[R$US%"]/g, '');
   if (s.includes(',') && s.includes('.')) {
     s = s.replace(/\./g, '').replace(',', '.');
   } else if (s.includes(',')) {
     s = s.replace(',', '.');
   }
-
   return parseFloat(s);
 }
 
+function parseCSVRow(row) {
+  const cells = [];
+  let cur = '', inQ = false;
+  for (const ch of row) {
+    if (ch === '"') { inQ = !inQ; }
+    else if (ch === ',' && !inQ) { cells.push(cur.trim()); cur = ''; }
+    else { cur += ch; }
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
 function parseCsv(text) {
-  const rows = text.split('\n').map(r => r.split(','));
+  const rows = text
+    .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    .trim().split('\n')
+    .map(parseCSVRow);
+
+  console.log('[Parser] Total de linhas:', rows.length);
+  rows.slice(0, 5).forEach((r, i) => console.log(`  row[${i}]:`, r.join(' | ')));
 
   const dados = [];
 
@@ -35,74 +52,110 @@ function parseCsv(text) {
     for (const cell of row) {
       const dateMatch = cell.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
       if (dateMatch) {
-        const [_, d, m, y] = dateMatch;
-        data = new Date(`${y}-${m}-${d}`);
+        const [, d, m, y] = dateMatch;
+        data = new Date(`${y}-${m}-${d}T12:00:00`);
       }
-
       const n = toNum(cell);
-      if (n > 5000 && n < 500000) sn = n;
-      if (n > 3 && n < 30) usd = n;
+      if (!sn  && n > 5000  && n < 500000) sn  = n;
+      if (!usd && n > 3     && n < 30)     usd = n;
     }
 
     if (data && sn && usd) {
       dados.push({ data, sn, usd });
+      console.log(`  [OK] ${data.toLocaleDateString('pt-BR')} | Sn=${sn} | USD=${usd}`);
     }
+  }
+
+  if (!dados.length) {
+    console.error('[Parser] Nenhuma linha válida encontrada!');
+    return null;
   }
 
   dados.sort((a, b) => b.data - a.data);
 
   const hoje = dados[0];
-
   const agora = new Date();
-  const semanaInicio = new Date();
+
+  const semanaInicio = new Date(agora);
   semanaInicio.setDate(agora.getDate() - 7);
 
   const mesInicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
 
-  const semana = dados.filter(d => d.data >= semanaInicio);
-  const mes = dados.filter(d => d.data >= mesInicio);
+  const dadosSemana = dados.filter(d => d.data >= semanaInicio);
+  const dadosMes    = dados.filter(d => d.data >= mesInicio);
 
   function media(arr, campo) {
     if (!arr.length) return 0;
     return arr.reduce((acc, v) => acc + v[campo], 0) / arr.length;
   }
 
+  console.log(`[Parser] Hoje: ${hoje.data.toLocaleDateString('pt-BR')} | Sn=${hoje.sn} | USD=${hoje.usd}`);
+  console.log(`[Parser] Semana: ${dadosSemana.length} registros | Mês: ${dadosMes.length} registros`);
+
   return {
     hoje: {
       estanho: hoje.sn,
-      dolar: hoje.usd,
-      data: hoje.data.toLocaleDateString('pt-BR')
+      dolar:   hoje.usd,
+      data:    hoje.data.toLocaleDateString('pt-BR')
     },
     semana: {
-      estanho: media(semana, 'sn'),
-      dolar: media(semana, 'usd')
+      estanho:   media(dadosSemana, 'sn'),
+      dolar:     media(dadosSemana, 'usd'),
+      registros: dadosSemana.length
     },
     mes: {
-      estanho: media(mes, 'sn'),
-      dolar: media(mes, 'usd')
+      estanho:   media(dadosMes, 'sn'),
+      dolar:     media(dadosMes, 'usd'),
+      registros: dadosMes.length
     }
   };
 }
 
-// ── API ─────────────────────────────────────────
-
 app.get('/api/cotacoes', async (req, res) => {
-  try {
-    const resp = await fetch(SHEET_CSV);
-    const text = await resp.text();
+  if (cache.data && Date.now() - cache.ts < CACHE_TTL) {
+    return res.json({ ...cache.data, cached: true });
+  }
 
+  try {
+    console.log('[API] Buscando planilha...');
+
+    let fetchFn;
+    try {
+      fetchFn = fetch;
+    } catch {
+      fetchFn = (...a) => import('node-fetch').then(({ default: f }) => f(...a));
+    }
+
+    const resp = await fetchFn(SHEET_CSV, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const text   = await resp.text();
     const result = parseCsv(text);
 
+    if (!result) {
+      return res.status(422).json({
+        error: 'Não foi possível extrair dados da planilha.',
+        rawSample: text.substring(0, 500)
+      });
+    }
+
+    cache = { data: result, ts: Date.now() };
     res.json(result);
+
   } catch (err) {
+    console.error('[API] Erro:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── Front ───────────────────────────────────────
+app.get('/api/cotacoes/refresh', async (req, res) => {
+  cache = { data: null, ts: 0 };
+  res.redirect('/api/cotacoes');
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => {
-  console.log(`Rodando na porta ${PORT}`);
+  console.log(`\n✅  Servidor rodando em http://localhost:${PORT}`);
+  console.log(`📊  API: http://localhost:${PORT}/api/cotacoes\n`);
 });
