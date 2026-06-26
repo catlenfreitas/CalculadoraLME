@@ -8,8 +8,8 @@
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
-    --bg:#282b30;--surface:#161b22;--surf2:#1c2230;--border:#2a3445;
-    --accent:#c12f12;--acc2:#c36b5b;--text:#e6edf3;--muted:#7d8590;
+    --bg:#24272b;--surface:#161b22;--surf2:#1c2230;--border:#2a3445;
+    --accent:#b80202;--acc2:#8a3232;--text:#e6edf3;--muted:#7d8590;
     --green:#3fb950;--red:#f85149;
     --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
   }
@@ -40,9 +40,10 @@
   .ptitle::after{content:'';flex:1;height:1px;background:var(--border)}
   .field{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
   .field label{font-size:12px;color:var(--muted);font-weight:500}
-  .field input{background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:14px;padding:10px 12px;width:100%;outline:none;transition:border-color .2s}
-  .field input:focus{border-color:var(--accent)}
+  .field input, .field select{background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:14px;padding:10px 12px;width:100%;outline:none;transition:border-color .2s}
+  .field input:focus, .field select:focus{border-color:var(--accent)}
   .field input::placeholder{color:var(--muted)}
+  .field select option{background:var(--surface);color:var(--text)}
   .note{font-size:11px;color:var(--muted);margin-top:3px}
   .icms-row{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px}
   .ibtn{background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-family:var(--mono);font-size:12px;padding:8px 2px;cursor:pointer;text-align:center;transition:all .15s}
@@ -79,8 +80,8 @@
 
 <header>
   <div>
-    <div class="brand-label">Escritório Cláudio Tinoco · LME</div>
-    <h1>Calculadora <em>Estanho</em></h1>
+    <div class="brand-label">Calculadora · LME</div>
+    <h1>Escritório <em>Cláudio Tinoco</em></h1>
   </div>
   <div id="pill" class="pill spin">
     <span class="dot"></span>
@@ -119,20 +120,26 @@
 <div class="grid">
   <div class="panel">
     <div class="ptitle">Cotações</div>
+
+    <div class="field">
+      <label>Data de referência</label>
+      <select id="inDate" onchange="onDataChange()">
+        <option value="">Carregando...</option>
+      </select>
+      <span class="note">Selecione a data · os valores atualizam automaticamente</span>
+    </div>
+
     <div class="field">
       <label>Estanho LME (USD / tonelada)</label>
       <input type="number" id="inSn" placeholder="ex: 54000" step="0.01">
-      <span class="note">Automático · edite para ajuste manual</span>
+      <span class="note">Preenchido pela data selecionada · edite para ajuste manual</span>
     </div>
     <div class="field">
       <label>Dólar (R$ / USD)</label>
       <input type="number" id="inUsd" placeholder="ex: 5.1244" step="0.0001">
-      <span class="note">Automático · edite para ajuste manual</span>
+      <span class="note">Preenchido pela data selecionada · edite para ajuste manual</span>
     </div>
-    <div class="field">
-      <label>Data de referência</label>
-      <input type="text" id="inDate" placeholder="—" readonly style="color:var(--muted)">
-    </div>
+
     <div style="margin-top:10px">
       <div class="ptitle">ICMS</div>
       <div class="icms-row">
@@ -210,6 +217,26 @@ function fmtDataCurta(dataStr) {
   return `${partes[0]}/${partes[1]}`;
 }
 
+// Chamado ao trocar a data no select
+function onDataChange() {
+  if (!dadosGlobais) return;
+  const sel   = document.getElementById('inDate');
+  const idx   = parseInt(sel.value);
+  const entry = dadosGlobais.historico[idx];
+  if (!entry) return;
+
+  document.getElementById('inSn').value  = entry.estanho;
+  document.getElementById('inUsd').value = entry.dolar;
+
+  // Atualiza tickers do dia com a data escolhida
+  setTicker('tSn',  `US$ ${fmt(entry.estanho, 2)}`, `Ref. ${entry.data}`);
+  setTicker('tUsd', `R$ ${fmt(entry.dolar, 4)}`,    `Ref. ${entry.data}`);
+
+  // Atualiza base
+  const fator = FATORES[selIcms];
+  setTicker('tBase', brl((entry.estanho * entry.dolar) / fator / 1000) + '/kg', `ICMS ${selIcms}%`);
+}
+
 function atualizarMedias() {
   if (!dadosGlobais) return;
   const data  = dadosGlobais;
@@ -249,9 +276,20 @@ async function loadCotacoes(forceRefresh = false) {
 
     dadosGlobais = data;
 
-    document.getElementById('inSn').value   = data.hoje.estanho;
-    document.getElementById('inUsd').value  = data.hoje.dolar;
-    document.getElementById('inDate').value = data.hoje.data || '';
+    // Monta o select com todas as datas do histórico
+    const sel = document.getElementById('inDate');
+    sel.innerHTML = '';
+    data.historico.forEach((entry, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `${entry.data}  —  Sn US$ ${fmt(entry.estanho, 2)}  ·  USD R$ ${fmt(entry.dolar, 4)}`;
+      if (i === 0) opt.selected = true; // mais recente selecionado por padrão
+      sel.appendChild(opt);
+    });
+
+    // Preenche inputs com a data mais recente
+    document.getElementById('inSn').value  = data.hoje.estanho;
+    document.getElementById('inUsd').value = data.hoje.dolar;
 
     setTicker('tSn',  `US$ ${fmt(data.hoje.estanho, 2)}`, `Ref. ${data.hoje.data}`);
     setTicker('tUsd', `R$ ${fmt(data.hoje.dolar, 4)}`,    `Ref. ${data.hoje.data}`);
@@ -300,7 +338,8 @@ function removeClient(i) { clients.splice(i, 1); renderClients(); }
 function calcular() {
   const sn   = parseFloat(document.getElementById('inSn').value);
   const usd  = parseFloat(document.getElementById('inUsd').value);
-  const date = document.getElementById('inDate').value || '—';
+  const sel  = document.getElementById('inDate');
+  const date = sel.options[sel.selectedIndex]?.text.split('—')[0].trim() || '—';
 
   if (isNaN(sn) || isNaN(usd)) {
     document.getElementById('results').innerHTML =

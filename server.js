@@ -1,4 +1,3 @@
-const fetch = require('node-fetch');
 const express = require('express');
 const path    = require('path');
 
@@ -83,7 +82,6 @@ function parseCsv(text) {
 
   const semanaInicio = new Date(agora);
   semanaInicio.setDate(agora.getDate() - 7);
-
   const mesInicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
 
   const dadosSemana = dados.filter(d => d.data >= semanaInicio);
@@ -106,10 +104,6 @@ function parseCsv(text) {
   const perSemana = periodo(dadosSemana);
   const perMes    = periodo(dadosMes);
 
-  console.log(`[Parser] Hoje: ${fmtDate(hoje.data)} | Sn=${hoje.sn} | USD=${hoje.usd}`);
-  console.log(`[Parser] Semana: ${dadosSemana.length} registros (${perSemana.dataInicio} a ${perSemana.dataFim})`);
-  console.log(`[Parser] Mês: ${dadosMes.length} registros (${perMes.dataInicio} a ${perMes.dataFim})`);
-
   return {
     hoje: {
       estanho: hoje.sn,
@@ -129,7 +123,13 @@ function parseCsv(text) {
       registros:  dadosMes.length,
       dataInicio: perMes.dataInicio,
       dataFim:    perMes.dataFim
-    }
+    },
+    // histórico completo para o seletor de datas
+    historico: dados.map(d => ({
+      data:    fmtDate(d.data),
+      estanho: d.sn,
+      dolar:   d.usd
+    }))
   };
 }
 
@@ -141,11 +141,12 @@ app.get('/api/cotacoes', async (req, res) => {
   try {
     console.log('[API] Buscando planilha...');
 
-    const resp = await fetch(SHEET_CSV);
+    let fetchFn;
+    try { fetchFn = fetch; }
+    catch { fetchFn = (...a) => import('node-fetch').then(({ default: f }) => f(...a)); }
 
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}`);
-    }
+    const resp = await fetchFn(SHEET_CSV, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
     const text   = await resp.text();
     const result = parseCsv(text);
