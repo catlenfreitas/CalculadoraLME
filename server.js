@@ -1,7 +1,7 @@
 const express = require('express');
-const path    = require('path');
+const path = require('path');
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 3000;
 
 const SHEET_CSV =
@@ -60,13 +60,26 @@ function parseCsv(text) {
         data = new Date(`${y}-${m}-${d}T12:00:00`);
       }
       const n = toNum(cell);
-      if (!sn  && n > 5000 && n < 500000) sn  = n;
-      if (!usd && n >= 4   && n <= 10)    usd = n;
+
+      if (sn === null && n > 5000 && n < 500000) {
+        sn = n;
+      }
+
+      if (usd === null && n >= 4 && n <= 10) {
+        usd = n;
+      }
     }
 
-    if (data && sn && usd) {
+    // Se houver data e estanho, adiciona mesmo sem dólar.
+    // Quando não houver cotação, o dólar fica 0.
+    if (data && sn !== null) {
+      if (usd === null) usd = 0;
+
       dados.push({ data, sn, usd });
-      console.log(`  [OK] ${fmtDate(data)} | Sn=${sn} | USD=${usd}`);
+
+      console.log(
+        `  [OK] ${fmtDate(data)} | Sn=${sn} | USD=${usd === 0 ? 'SEM COTAÇÃO' : usd}`
+      );
     }
   }
 
@@ -85,11 +98,24 @@ function parseCsv(text) {
   const mesInicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
 
   const dadosSemana = dados.filter(d => d.data >= semanaInicio);
-  const dadosMes    = dados.filter(d => d.data >= mesInicio);
+  const dadosMes = dados.filter(d => d.data >= mesInicio);
+
+  const dadosSemanaValidos = dadosSemana.filter(d => d.usd > 0);
+  const dadosMesValidos = dadosMes.filter(d => d.usd > 0);
 
   function media(arr, campo) {
-    if (!arr.length) return 0;
-    return arr.reduce((acc, v) => acc + v[campo], 0) / arr.length;
+    let soma = 0;
+    let qtd = 0;
+
+    for (const item of arr) {
+      // Ignora dias sem cotação
+      if (item.usd === 0) continue;
+
+      soma += item[campo];
+      qtd++;
+    }
+
+    return qtd ? soma / qtd : 0;
   }
 
   function periodo(arr) {
@@ -97,38 +123,38 @@ function parseCsv(text) {
     const sorted = [...arr].sort((a, b) => a.data - b.data);
     return {
       dataInicio: fmtDate(sorted[0].data),
-      dataFim:    fmtDate(sorted[sorted.length - 1].data)
+      dataFim: fmtDate(sorted[sorted.length - 1].data)
     };
   }
 
   const perSemana = periodo(dadosSemana);
-  const perMes    = periodo(dadosMes);
+  const perMes = periodo(dadosMes);
 
   return {
     hoje: {
       estanho: hoje.sn,
-      dolar:   hoje.usd,
-      data:    fmtDate(hoje.data)
+      dolar: hoje.usd,
+      data: fmtDate(hoje.data)
     },
     semana: {
-      estanho:    media(dadosSemana, 'sn'),
-      dolar:      media(dadosSemana, 'usd'),
-      registros:  dadosSemana.length,
+      estanho: media(dadosSemanaValidos, 'sn'),
+      dolar: media(dadosSemanaValidos, 'usd'),
+      registros: dadosSemanaValidos.length,
       dataInicio: perSemana.dataInicio,
-      dataFim:    perSemana.dataFim
+      dataFim: perSemana.dataFim
     },
     mes: {
-      estanho:    media(dadosMes, 'sn'),
-      dolar:      media(dadosMes, 'usd'),
-      registros:  dadosMes.length,
+      estanho: media(dadosMesValidos, 'sn'),
+      dolar: media(dadosMesValidos, 'usd'),
+      registros: dadosMesValidos.length,
       dataInicio: perMes.dataInicio,
-      dataFim:    perMes.dataFim
+      dataFim: perMes.dataFim
     },
     // histórico completo para o seletor de datas
     historico: dados.map(d => ({
-      data:    fmtDate(d.data),
+      data: fmtDate(d.data),
       estanho: d.sn,
-      dolar:   d.usd
+      dolar: d.usd
     }))
   };
 }
@@ -148,7 +174,7 @@ app.get('/api/cotacoes', async (req, res) => {
     const resp = await fetchFn(SHEET_CSV, { signal: AbortSignal.timeout(10000) });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-    const text   = await resp.text();
+    const text = await resp.text();
     const result = parseCsv(text);
 
     if (!result) {
